@@ -243,7 +243,8 @@ app.get('/api/projects/:id/ml-risk', async (req, res) => {
      };
 
      // 4. Call Python ML Microservice
-     const mlResp = await fetch('http://127.0.0.1:8000/api/analyze-proposal', {
+     const mlApiUrl = process.env.ML_API_URL || 'http://127.0.0.1:8000';
+    const mlResp = await fetch(`${mlApiUrl}/api/analyze-proposal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mlPayload)
