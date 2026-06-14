@@ -1,0 +1,8 @@
+{
+    "name": "Test User",
+    "email": "testuser@example.com",
+    "password": "password123",
+    "organization_name": "Test Org",
+    "team_size": "1-10",
+    "role": "Team Member"
+}

@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Security and Keys
+.env
+
+# Database
+*.sqlite
+intellipm.sqlite
+ml_service/*.db
+
+# Large Files & ML Models
+ai_models/
+ml_service/trained_models/
+ml_service/venv/
+__pycache__/
