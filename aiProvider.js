@@ -46,7 +46,7 @@ Rules:
 - Tasks should be specific and actionable`;
 
     // ── Groq (default) ────────────────────────────────────────────
-    if (provider === 'groq' || provider === 'ollama') {
+    if (provider === 'groq') {
       const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
       console.log('>>> GROQ: Generating tasks via llama-3.3-70b-versatile...');
 
@@ -68,6 +68,47 @@ Rules:
       const lastBrace  = text.lastIndexOf('}');
       if (firstBrace === -1 || lastBrace === -1) throw new Error('No JSON found in Groq response');
 
+      const jsonStr = text.substring(firstBrace, lastBrace + 1);
+      const parsed  = JSON.parse(jsonStr);
+      let tasks = parsed.tasks || parsed;
+      if (!Array.isArray(tasks)) tasks = [tasks];
+
+      return tasks.map(t => ({
+        title:          t.title       || t.name      || 'Untitled Task',
+        priority:       t.priority    || 'Medium',
+        status:         t.status      || 'To Do',
+        assignee:       t.assignee    || t.assigned_to || 'Unassigned',
+        estimated_days: parseInt(t.estimated_days) || 3,
+      }));
+    }
+
+    // ── Ollama (Hugging Face Space) ────────────────────────────────
+    if (provider === 'ollama') {
+      console.log('>>> OLLAMA: Generating tasks via Hugging Face Space...');
+      // Use the OLLAMA_HOST from environment variables
+      const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
+      
+      const response = await fetch(`${ollamaHost}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'llama3-tasks',
+          prompt: prompt,
+          stream: false,
+          options: { temperature: 0.6 }
+        })
+      });
+      
+      if (!response.ok) throw new Error(`Ollama Server Error: ${response.statusText}`);
+      
+      const data = await response.json();
+      const text = data.response || '';
+      console.log('>>> OLLAMA RAW RESPONSE:', text.substring(0, 300));
+      
+      const firstBrace = text.indexOf('{');
+      const lastBrace  = text.lastIndexOf('}');
+      if (firstBrace === -1 || lastBrace === -1) throw new Error('No JSON found in Ollama response');
+      
       const jsonStr = text.substring(firstBrace, lastBrace + 1);
       const parsed  = JSON.parse(jsonStr);
       let tasks = parsed.tasks || parsed;
