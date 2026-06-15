@@ -26,7 +26,7 @@ export async function generateTasks({ description, projectType, complexity, mode
       ? `Available Team Members and their roles:\n${teamMembers.map(m => `- ${m.name} (${m.role}) ${m.skills && m.skills.length > 0 ? `— Skills: ${m.skills.join(', ')}` : ''}`).join('\n')}`
       : "No specific team members provided. Use generic role names like 'Developer', 'Designer', etc.";
 
-    const prompt = `You are a senior project manager. Generate exactly 15 to 20 unique, realistic tasks for this project, ordered chronologically from the start of the project to the end.
+    const prompt = `You are a senior project manager. You MUST generate EXACTLY 15 to 20 unique, realistic tasks for this project, ordered chronologically.
 
 Project Description: ${description}
 Project Type: ${projectType || 'Software Development'}
@@ -39,7 +39,7 @@ Return this exact structure:
 {"tasks": [{"title": "Task name here", "priority": "High", "assignee": "Team member name", "estimated_days": 3}]}
 
 Rules:
-1. Generate EXACTLY 15 to 20 tasks.
+1. Generate EXACTLY 15 to 20 tasks. If you only have a few main tasks, you MUST break them down into smaller micro-tasks (e.g. Planning, Setup, Implementation, Testing, Review for EACH feature) to reach at least 15 tasks.
 2. Order the tasks chronologically (Phase 1 first, deployment last).
 3. priority must be exactly: High, Medium, or Low.
 4. assignee must be a real team member name exactly as spelled in the list above, or "Unassigned". Do not invent names.
@@ -119,6 +119,19 @@ Rules:
       const parsed  = JSON.parse(jsonStr);
       let tasks = parsed.tasks || parsed;
       if (!Array.isArray(tasks)) tasks = [tasks];
+
+      // If Ollama's small model refuses to generate enough tasks due to token/memory limits, intelligently break them down in code!
+      if (tasks.length > 0 && tasks.length < 15) {
+         console.log(`>>> OLLAMA generated only ${tasks.length} tasks. Automatically expanding into micro-tasks to reach 15+...`);
+         const expandedTasks = [];
+         for (const t of tasks) {
+            const baseDays = parseInt(t.estimated_days) || 3;
+            expandedTasks.push({ ...t, title: `Phase 1 (Planning): ${t.title || t.name}`, estimated_days: Math.max(1, Math.floor(baseDays/3)), priority: 'Medium' });
+            expandedTasks.push({ ...t, title: `Phase 2 (Execution): ${t.title || t.name}`, estimated_days: baseDays, priority: 'High' });
+            expandedTasks.push({ ...t, title: `Phase 3 (Review): ${t.title || t.name}`, estimated_days: 1, priority: 'Low' });
+         }
+         tasks = expandedTasks;
+      }
 
       return tasks.map(t => ({
         title:          t.title       || t.name      || 'Untitled Task',
