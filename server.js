@@ -246,7 +246,10 @@ app.get('/api/projects/:id/ml-risk', async (req, res) => {
      const mlApiUrl = process.env.ML_API_URL || 'http://127.0.0.1:8000';
     const mlResp = await fetch(`${mlApiUrl}/api/analyze-proposal`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
         body: JSON.stringify(mlPayload)
      });
 

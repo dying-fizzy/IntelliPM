@@ -90,7 +90,10 @@ Rules:
       
       const response = await fetch(`${ollamaHost}/api/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
         body: JSON.stringify({
           model: 'llama3-tasks',
           prompt: prompt,
