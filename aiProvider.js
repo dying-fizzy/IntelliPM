@@ -4,13 +4,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export async function generateTasks({ description, projectType, complexity, mode, teamMembers = [] }) {
-  let provider = process.env.AI_PROVIDER || 'groq';
+  const provider = process.env.AI_PROVIDER || 'groq';
   console.log(`>>> AI PROVIDER SELECTED: "${provider}"`);
-
-  if (provider === 'ollama') {
-     console.log('>>> OLLAMA detected. Overriding to GROQ because local 1B/3B models cannot generate 20 high-quality tasks.');
-     provider = 'groq';
-  }
 
   if (provider === 'stub') {
     // Return mock tasks as a stub
@@ -91,7 +86,83 @@ Rules:
 
     // ── Ollama (Hugging Face Space) ────────────────────────────────
     if (provider === 'ollama') {
-       // Code removed since we now override to groq at the top
+      console.log('>>> OLLAMA: Generating tasks via multi-phase prompting to bypass 3B token limits...');
+      const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
+      
+      const phases = [
+        "Phase 1: Planning, Research, and Initial Setup",
+        "Phase 2: Core Development and Implementation",
+        "Phase 3: QA Testing, Final Review, and Deployment"
+      ];
+      
+      let allTasks = [];
+      
+      const phasePromises = phases.map(async (phase) => {
+        const phasePrompt = `You are a senior project manager. Generate EXACTLY 5 to 7 unique, realistic tasks specifically for ${phase} of this project.
+
+Project Description: ${description}
+Project Type: ${projectType || 'Software Development'}
+Complexity (1-10): ${complexity || 5}
+
+${memberContext}
+
+IMPORTANT: Return ONLY valid JSON — no markdown, no explanation, no code blocks.
+Return this exact structure:
+{"tasks": [{"title": "Task name here", "priority": "High", "assignee": "Team member name", "estimated_days": 3}]}
+
+Rules:
+1. Generate EXACTLY 5 to 7 tasks for ${phase}.
+2. priority must be exactly: High, Medium, or Low.
+3. assignee must be a real team member name exactly as spelled in the list above, or "Unassigned".
+4. estimated_days must be an integer between 1 and 14.`;
+
+        try {
+          const response = await fetch(`${ollamaHost}/api/chat`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'ngrok-skip-browser-warning': 'true'
+            },
+            body: JSON.stringify({
+              model: 'llama3-tasks',
+              messages: [{ role: 'system', content: 'Return ONLY valid JSON.' }, { role: 'user', content: phasePrompt }],
+              format: 'json',
+              stream: false,
+              options: { temperature: 0.7, num_predict: 2048 }
+            })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const text = data.message?.content || '';
+            const firstBrace = text.indexOf('{');
+            const lastBrace  = text.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+              const jsonStr = text.substring(firstBrace, lastBrace + 1);
+              const parsed  = JSON.parse(jsonStr);
+              let tasks = parsed.tasks || parsed;
+              if (!Array.isArray(tasks)) tasks = [tasks];
+              return tasks;
+            }
+          }
+        } catch (e) {
+          console.error(`Ollama Phase error:`, e);
+        }
+        return [];
+      });
+
+      const results = await Promise.all(phasePromises);
+      allTasks = results.flat();
+
+      if (allTasks.length === 0) throw new Error('No JSON found in Ollama response');
+
+      return allTasks.map(t => ({
+        title:          t.title       || t.name      || 'Untitled Task',
+        priority:       t.priority    || 'Medium',
+        status:         t.status      || 'To Do',
+        assignee:       t.assignee    || t.assigned_to || 'Unassigned',
+        estimated_days: parseInt(t.estimated_days) || 3,
+      }));
     }
 
     // ── Gemini fallback ────────────────────────────────────────────
