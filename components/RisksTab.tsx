@@ -367,7 +367,7 @@ const RisksTab: React.FC<RisksTabProps> = ({ projectId, onTabSwitch }) => {
           const { data: sessionData } = await supabase.auth.getSession();
           const token = sessionData?.session?.access_token || '';
           
-          const mlRes = await fetch(`http://localhost:5000/api/projects/${projectId}/ml-risk`, {
+          const mlRes = await fetch(`/api/projects/${projectId}/ml-risk`, {
              headers: token ? { Authorization: `Bearer ${token}` } : {}
           });
           if (mlRes.ok) {

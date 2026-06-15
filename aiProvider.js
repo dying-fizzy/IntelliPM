@@ -26,7 +26,7 @@ export async function generateTasks({ description, projectType, complexity, mode
       ? `Available Team Members and their roles:\n${teamMembers.map(m => `- ${m.name} (${m.role}) ${m.skills && m.skills.length > 0 ? `— Skills: ${m.skills.join(', ')}` : ''}`).join('\n')}`
       : "No specific team members provided. Use generic role names like 'Developer', 'Designer', etc.";
 
-    const prompt = `You are a senior project manager. Generate 8-10 unique, realistic tasks for this project.
+    const prompt = `You are a senior project manager. Generate exactly 8 to 10 unique, realistic tasks for this project, ordered chronologically from the start of the project to the end.
 
 Project Description: ${description}
 Project Type: ${projectType || 'Software Development'}
@@ -39,11 +39,13 @@ Return this exact structure:
 {"tasks": [{"title": "Task name here", "priority": "High", "assignee": "Team member name", "estimated_days": 3}]}
 
 Rules:
-- priority must be exactly: High, Medium, or Low
-- assignee must be a real team member name from the list above, or "Unassigned"
-- estimated_days must be an integer between 1 and 14
-- No duplicate tasks
-- Tasks should be specific and actionable`;
+1. Generate EXACTLY 8 to 10 tasks.
+2. Order the tasks chronologically (Phase 1 first, deployment last).
+3. priority must be exactly: High, Medium, or Low.
+4. assignee must be a real team member name exactly as spelled in the list above, or "Unassigned". Do not invent names.
+5. estimated_days must be an integer between 1 and 14.
+6. No duplicate tasks.
+7. Tasks should be specific and actionable.`;
 
     // ── Groq (default) ────────────────────────────────────────────
     if (provider === 'groq') {

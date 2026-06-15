@@ -166,7 +166,7 @@ app.post('/api/ai/generate-tasks', async (req, res) => {
       return {
         ...task,
         assigned_to: matchedMember ? matchedMember.id : null,
-        assignee_name: matchedMember ? matchedMember.name : (task.assignee || 'Unassigned')
+        assignee_name: matchedMember ? matchedMember.name : 'Unassigned'
       };
     });
 
