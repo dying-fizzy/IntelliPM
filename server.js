@@ -292,6 +292,86 @@ app.post('/api/user/settings', authenticate, async (req, res) => {
   }
 });
 
+// ── NEW STREAMING TASK ENDPOINT ──
+app.post('/api/ai/stream-tasks', async (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Transfer-Encoding', 'chunked');
+
+  const { description, projectType, complexity, mode, projectId } = req.body;
+  if (!description) {
+    res.write('[ERROR: Project description is required]');
+    return res.end();
+  }
+
+  try {
+    let teamMembers = [];
+    if (projectId) {
+      const authHeader = req.headers.authorization;
+      const token = authHeader && authHeader.split(' ')[1];
+      const dbClient = token 
+        ? createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: `Bearer ${token}` } } })
+        : supabase;
+      
+      const { data: members } = await dbClient.from('project_members')
+        .select('profiles(id, display_name, role)').eq('project_id', projectId);
+      
+      if (members && members.length > 0) {
+        teamMembers = members.map(m => ({
+          id: m.profiles.id,
+          name: m.profiles.display_name,
+          role: m.profiles.role,
+          skills: []
+        }));
+
+        const displayNames = teamMembers.map(m => m.name);
+        if (displayNames.length > 0) {
+          const { data: employees } = await supabaseAdmin.from('employees').select('employee_id, full_name').in('full_name', displayNames);
+          if (employees && employees.length > 0) {
+            const empIds = employees.map(e => e.employee_id);
+            const { data: skillsData } = await supabaseAdmin.from('employee_skills').select('employee_id, skill_name, skill_level').in('employee_id', empIds);
+            if (skillsData) {
+              for (const member of teamMembers) {
+                 const empMatch = employees.find(e => e.full_name === member.name);
+                 if (empMatch) {
+                   member.skills = skillsData.filter(s => s.employee_id === empMatch.employee_id).map(s => `${s.skill_name}[${s.skill_level}/10]`);
+                 }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Call generateTasks with the onChunk callback
+    const rawTasks = await generateTasks({ description, projectType, complexity, mode, teamMembers }, (chunk) => {
+      res.write(chunk);
+    });
+
+    // Map assignee names back to UUIDs
+    const tasks = rawTasks.map(task => {
+      const aiName = (task.assignee || '').toLowerCase().trim();
+      const matchedMember = teamMembers.find(m => {
+        const memberName = m.name.toLowerCase().trim();
+        return memberName === aiName || memberName.includes(aiName) || aiName.includes(memberName);
+      });
+      return {
+        ...task,
+        assigned_to: matchedMember ? matchedMember.id : null,
+        assignee_name: matchedMember ? matchedMember.name : 'Unassigned'
+      };
+    });
+
+    // Append the final parsed tasks using a secret delimiter so the frontend can easily grab the final array
+    res.write('\n\n__FINAL_TASKS__\n' + JSON.stringify(tasks));
+    res.end();
+
+  } catch (err) {
+    console.error('>>> AI STREAM TASKS ERROR:', err.message);
+    res.write('\n\n[ERROR: ' + err.message + ']');
+    res.end();
+  }
+});
+
 app.get('/api/user/me', authenticate, async (req, res) => {
   try {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', req.userId).single();

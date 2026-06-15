@@ -27,6 +27,7 @@ const AITaskGenerator: React.FC<Props> = ({
   const [tasks, setTasks] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rawStreamText, setRawStreamText] = useState('');
 
   const handleGenerate = async () => {
     setStage('generating');
@@ -34,9 +35,13 @@ const AITaskGenerator: React.FC<Props> = ({
     setError('');
 
     try {
-      const response = await fetch('/api/ai/generate-tasks', {
+      const { data: session } = await supabase.auth.getSession();
+      const response = await fetch('/api/ai/stream-tasks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.session?.access_token || ''}`
+        },
         body: JSON.stringify({
           projectId,
           description: projectDescription,
@@ -45,19 +50,44 @@ const AITaskGenerator: React.FC<Props> = ({
         }),
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.message || 'Generation failed.');
+      if (!response.body) throw new Error('ReadableStream not supported.');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let accumulatedText = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedText += chunk;
+        setRawStreamText(accumulatedText);
+        
+        if (accumulatedText.includes('[ERROR:')) {
+           throw new Error(accumulatedText.split('[ERROR:')[1].split(']')[0]);
+        }
       }
 
-      const data = await response.json();
-      const mappedTasks = data.tasks.map((t: any) => {
-        const d = new Date();
-        d.setDate(d.getDate() + (t.estimated_days || 3));
-        return { ...t, due_date: d.toISOString().split('T')[0] };
-      });
-      setTasks(mappedTasks);
-      setStage('done');
+      // Check for the final secret delimiter
+      const delimiter = '__FINAL_TASKS__';
+      if (accumulatedText.includes(delimiter)) {
+         const parts = accumulatedText.split(delimiter);
+         const finalJsonStr = parts[1].trim();
+         const parsedTasks = JSON.parse(finalJsonStr);
+         
+         const mappedTasks = parsedTasks.map((t: any) => {
+           const d = new Date();
+           d.setDate(d.getDate() + (t.estimated_days || 3));
+           return { ...t, due_date: d.toISOString().split('T')[0] };
+         });
+         
+         setTasks(mappedTasks);
+         setStage('done');
+      } else {
+         throw new Error('Stream finished prematurely without generating final tasks.');
+      }
+
     } catch (err: any) {
       setError(err.message || 'Generation failed.');
       setStage('error');
@@ -136,9 +166,22 @@ const AITaskGenerator: React.FC<Props> = ({
 
           {/* GENERATING */}
           {stage === 'generating' && (
-            <div className="flex flex-col items-center gap-4 py-10">
-              <Loader2 size={32} className="text-[var(--accent)] animate-spin" />
-              <p className="text-[12px] mono opacity-40 uppercase tracking-widest">AI is thinking…</p>
+            <div className="flex flex-col gap-4 py-4 h-[400px]">
+              <div className="flex items-center gap-3">
+                <Loader2 size={18} className="text-[var(--accent)] animate-spin" />
+                <p className="text-[12px] mono opacity-80 uppercase tracking-widest text-[var(--accent)]">
+                  AI is writing tasks...
+                </p>
+              </div>
+              <div 
+                className="flex-1 bg-black/40 border border-white/10 rounded-md p-4 overflow-y-auto"
+                style={{ scrollBehavior: 'smooth' }}
+              >
+                <pre className="text-[11px] mono text-green-400 whitespace-pre-wrap break-words leading-relaxed">
+                  {rawStreamText.split('__FINAL_TASKS__')[0]}
+                  <span className="inline-block w-2 h-3 bg-green-400 animate-pulse ml-1 align-middle"></span>
+                </pre>
+              </div>
             </div>
           )}
 

@@ -3,7 +3,7 @@ import Groq from 'groq-sdk';
 import dotenv from 'dotenv';
 dotenv.config();
 
-export async function generateTasks({ description, projectType, complexity, mode, teamMembers = [] }) {
+export async function generateTasks({ description, projectType, complexity, mode, teamMembers = [] }, onChunk) {
   const provider = process.env.AI_PROVIDER || 'groq';
   console.log(`>>> AI PROVIDER SELECTED: "${provider}"`);
 
@@ -52,7 +52,7 @@ Rules:
       const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
       console.log('>>> GROQ: Generating tasks via llama-3.3-70b-versatile...');
 
-      const completion = await groq.chat.completions.create({
+      const stream = await groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: 'You are a project management AI. You always respond with valid JSON only, no markdown, no explanation.' },
@@ -60,9 +60,18 @@ Rules:
         ],
         temperature: 0.6,
         max_tokens: 2048,
+        stream: true,
       });
 
-      const text = completion.choices[0]?.message?.content || '';
+      let text = '';
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+          text += delta;
+          if (onChunk) onChunk(delta);
+        }
+      }
+
       console.log('>>> GROQ RAW RESPONSE:', text.substring(0, 300));
 
       // Robust JSON extraction
@@ -127,14 +136,33 @@ Rules:
               model: 'llama3-tasks',
               messages: [{ role: 'system', content: 'Return ONLY valid JSON.' }, { role: 'user', content: phasePrompt }],
               format: 'json',
-              stream: false,
+              stream: true,
               options: { temperature: 0.7, num_predict: 2048 }
             })
           });
           
           if (response.ok) {
-            const data = await response.json();
-            const text = data.message?.content || '';
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let text = '';
+            
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunkStr = decoder.decode(value, { stream: true });
+              const lines = chunkStr.split('\n').filter(l => l.trim() !== '');
+              for (const line of lines) {
+                try {
+                  const parsedChunk = JSON.parse(line);
+                  const delta = parsedChunk.message?.content || '';
+                  if (delta) {
+                    text += delta;
+                    if (onChunk) onChunk(delta);
+                  }
+                } catch(e) {}
+              }
+            }
+            
             const firstBrace = text.indexOf('{');
             const lastBrace  = text.lastIndexOf('}');
             if (firstBrace !== -1 && lastBrace !== -1) {
