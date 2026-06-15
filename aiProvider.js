@@ -88,7 +88,7 @@ Rules:
       // Use the OLLAMA_HOST from environment variables
       const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
       
-      const response = await fetch(`${ollamaHost}/api/generate`, {
+      const response = await fetch(`${ollamaHost}/api/chat`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -96,7 +96,8 @@ Rules:
         },
         body: JSON.stringify({
           model: 'llama3-tasks',
-          prompt: prompt,
+          messages: [{ role: 'system', content: 'Return ONLY valid JSON. No text, no markdown.' }, { role: 'user', content: prompt }],
+          format: 'json',
           stream: false,
           options: { temperature: 0.6 }
         })
@@ -105,7 +106,7 @@ Rules:
       if (!response.ok) throw new Error(`Ollama Server Error: ${response.statusText}`);
       
       const data = await response.json();
-      const text = data.response || '';
+      const text = data.message?.content || '';
       console.log('>>> OLLAMA RAW RESPONSE:', text.substring(0, 300));
       
       const firstBrace = text.indexOf('{');

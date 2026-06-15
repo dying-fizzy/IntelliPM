@@ -9,7 +9,7 @@ const server = http.createServer((req, res) => {
   let targetHost = '127.0.0.1';
 
   // Route logic
-  if (req.url.startsWith('/api/generate')) {
+  if (req.url.startsWith('/api/generate') || req.url.startsWith('/api/chat')) {
     targetPort = OLLAMA_PORT;
     console.log(`[PROXY] Routing Task Generation (Ollama) -> :${OLLAMA_PORT}`);
   } else if (req.url.startsWith('/api/analyze-proposal')) {
