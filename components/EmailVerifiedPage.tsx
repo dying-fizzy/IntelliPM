@@ -42,9 +42,9 @@ const EmailVerifiedPage: React.FC = () => {
     const init = async () => {
       let session = null;
 
-      // Retry loop: Supabase processes the email confirmation token
-      // asynchronously. Give it up to 10 seconds.
-      for (let attempt = 0; attempt < 10; attempt++) {
+      // Supabase processes the email confirmation token asynchronously.
+      // Give it up to 15 seconds (15 attempts x 1s) to fully establish the session.
+      for (let attempt = 0; attempt < 15; attempt++) {
         const { data: sessionData } = await supabase.auth.getSession();
         if (sessionData?.session) {
           session = sessionData.session;
@@ -54,7 +54,7 @@ const EmailVerifiedPage: React.FC = () => {
       }
 
       if (!session) {
-        setError('This verification link has expired or already been used. Please request a new one.');
+        setError('Verification link expired or already used. Use the button below to get a new one.');
         setStage('error');
         return;
       }
@@ -92,7 +92,8 @@ const EmailVerifiedPage: React.FC = () => {
     if (!email) { navigate('/register'); return; }
     setResending(true);
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}#/email-verified`;
+      // Root URL so Supabase token doesn't conflict with HashRouter's #/path
+      const redirectTo = window.location.origin;
       await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: redirectTo } });
       setResendDone(true);
     } catch (_) {}

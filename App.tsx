@@ -122,10 +122,20 @@ const AppContent: React.FC = () => {
   // We only listen for auth events to handle sign-outs or token refreshes.
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // If a user signs out, clear local storage
       if (event === 'SIGNED_OUT') {
         localStorage.removeItem('user');
         localStorage.removeItem('token');
+      }
+
+      // Cross-tab sync: when user clicks email link in any tab, SIGNED_IN fires
+      // in ALL open tabs simultaneously. If there's pending registration, redirect.
+      if (event === 'SIGNED_IN' && session) {
+        localStorage.setItem('token', session.access_token);
+        const pending = localStorage.getItem(PENDING_REG_KEY);
+        const alreadySetup = localStorage.getItem('user');
+        if (pending && !alreadySetup) {
+          navigate('/email-verified');
+        }
       }
     });
     return () => subscription.unsubscribe();

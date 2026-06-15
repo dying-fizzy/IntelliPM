@@ -102,7 +102,8 @@ const RegisterPage: React.FC = () => {
     if (resendCooldown > 0) return;
     setError('');
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}#/email-verified`;
+      // Use root URL — Supabase appends #access_token=... so no hash fragments here
+      const redirectTo = window.location.origin;
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: formData.email,
@@ -136,7 +137,8 @@ const RegisterPage: React.FC = () => {
         role: '',
       }));
 
-      const redirectTo = `${window.location.origin}${window.location.pathname}#/email-verified`;
+      // Use root URL — Supabase appends #access_token=... which would clash with HashRouter's #/route
+      const redirectTo = window.location.origin;
       const { data, error: authError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -151,7 +153,6 @@ const RegisterPage: React.FC = () => {
 
       if (data.session) {
         // Email confirmation is disabled in Supabase → already verified
-        // Store token and send them straight to the workspace/role setup
         localStorage.setItem('token', data.session.access_token);
         window.location.hash = '/email-verified';
       } else {
@@ -160,10 +161,18 @@ const RegisterPage: React.FC = () => {
         startResendCooldown();
       }
     } catch (err: any) {
-      localStorage.removeItem(PENDING_REG_KEY);
       const msg: string = err.message || '';
       if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already been registered')) {
-        setError('An account with this email already exists. Please sign in instead.');
+        // Instead of showing an error, silently re-send the verification email
+        try {
+          const redirectTo = window.location.origin;
+          await supabase.auth.resend({ type: 'signup', email: formData.email, options: { emailRedirectTo: redirectTo } });
+          setView('verify');
+          startResendCooldown();
+        } catch {
+          setError('An account with this email exists but is not yet verified. Please check your inbox or use "Resend Email".');
+          setView('verify');
+        }
       } else if (msg.toLowerCase().includes('rate limit')) {
         setError('Too many attempts. Please wait a few minutes and try again.');
       } else {
