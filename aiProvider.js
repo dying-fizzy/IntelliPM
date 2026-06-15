@@ -86,54 +86,73 @@ Rules:
 
     // ── Ollama (Hugging Face Space) ────────────────────────────────
     if (provider === 'ollama') {
-      console.log('>>> OLLAMA: Generating tasks via Hugging Face Space...');
-      // Use the OLLAMA_HOST from environment variables
+      console.log('>>> OLLAMA: Generating tasks via multi-phase prompting to bypass 3B token limits...');
       const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
       
-      const response = await fetch(`${ollamaHost}/api/chat`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
-        body: JSON.stringify({
-          model: 'llama3-tasks',
-          messages: [{ role: 'system', content: 'Return ONLY valid JSON. No text, no markdown.' }, { role: 'user', content: prompt }],
-          format: 'json',
-          stream: false,
-          options: { temperature: 0.6, num_predict: 2048 }
-        })
-      });
+      const phases = [
+        "Phase 1: Planning, Research, and Initial Setup",
+        "Phase 2: Core Development and Implementation",
+        "Phase 3: QA Testing, Final Review, and Deployment"
+      ];
       
-      if (!response.ok) throw new Error(`Ollama Server Error: ${response.statusText}`);
+      let allTasks = [];
       
-      const data = await response.json();
-      const text = data.message?.content || '';
-      console.log('>>> OLLAMA RAW RESPONSE:', text.substring(0, 300));
-      
-      const firstBrace = text.indexOf('{');
-      const lastBrace  = text.lastIndexOf('}');
-      if (firstBrace === -1 || lastBrace === -1) throw new Error('No JSON found in Ollama response');
-      
-      const jsonStr = text.substring(firstBrace, lastBrace + 1);
-      const parsed  = JSON.parse(jsonStr);
-      let tasks = parsed.tasks || parsed;
-      if (!Array.isArray(tasks)) tasks = [tasks];
+      for (const phase of phases) {
+        const phasePrompt = `You are a senior project manager. Generate EXACTLY 5 to 7 unique, realistic tasks specifically for ${phase} of this project.
 
-      // If Ollama's small model refuses to generate enough tasks due to token/memory limits, intelligently break them down in code!
-      if (tasks.length > 0 && tasks.length < 15) {
-         console.log(`>>> OLLAMA generated only ${tasks.length} tasks. Automatically expanding into micro-tasks to reach 15+...`);
-         const expandedTasks = [];
-         for (const t of tasks) {
-            const baseDays = parseInt(t.estimated_days) || 3;
-            expandedTasks.push({ ...t, title: `Phase 1 (Planning): ${t.title || t.name}`, estimated_days: Math.max(1, Math.floor(baseDays/3)), priority: 'Medium' });
-            expandedTasks.push({ ...t, title: `Phase 2 (Execution): ${t.title || t.name}`, estimated_days: baseDays, priority: 'High' });
-            expandedTasks.push({ ...t, title: `Phase 3 (Review): ${t.title || t.name}`, estimated_days: 1, priority: 'Low' });
-         }
-         tasks = expandedTasks;
+Project Description: ${description}
+Project Type: ${projectType || 'Software Development'}
+Complexity (1-10): ${complexity || 5}
+
+${memberContext}
+
+IMPORTANT: Return ONLY valid JSON — no markdown, no explanation, no code blocks.
+Return this exact structure:
+{"tasks": [{"title": "Task name here", "priority": "High", "assignee": "Team member name", "estimated_days": 3}]}
+
+Rules:
+1. Generate EXACTLY 5 to 7 tasks for ${phase}.
+2. priority must be exactly: High, Medium, or Low.
+3. assignee must be a real team member name exactly as spelled in the list above, or "Unassigned".
+4. estimated_days must be an integer between 1 and 14.`;
+
+        try {
+          const response = await fetch(`${ollamaHost}/api/chat`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'ngrok-skip-browser-warning': 'true'
+            },
+            body: JSON.stringify({
+              model: 'llama3-tasks',
+              messages: [{ role: 'system', content: 'Return ONLY valid JSON.' }, { role: 'user', content: phasePrompt }],
+              format: 'json',
+              stream: false,
+              options: { temperature: 0.7, num_predict: 2048 }
+            })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const text = data.message?.content || '';
+            const firstBrace = text.indexOf('{');
+            const lastBrace  = text.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+              const jsonStr = text.substring(firstBrace, lastBrace + 1);
+              const parsed  = JSON.parse(jsonStr);
+              let tasks = parsed.tasks || parsed;
+              if (!Array.isArray(tasks)) tasks = [tasks];
+              allTasks = allTasks.concat(tasks);
+            }
+          }
+        } catch (e) {
+          console.error(`Ollama Phase error:`, e);
+        }
       }
 
-      return tasks.map(t => ({
+      if (allTasks.length === 0) throw new Error('No JSON found in Ollama response');
+
+      return allTasks.map(t => ({
         title:          t.title       || t.name      || 'Untitled Task',
         priority:       t.priority    || 'Medium',
         status:         t.status      || 'To Do',
