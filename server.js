@@ -425,8 +425,6 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'Message is required.' });
   }
 
-  const provider = process.env.AI_PROVIDER || 'groq';
-
   try {
     const messages = [
       { role: 'system', content: INTELLIPM_SYSTEM_PROMPT },
@@ -438,28 +436,7 @@ app.post('/api/chat', async (req, res) => {
       { role: 'user', content: message.trim() }
     ];
 
-    if (provider === 'ollama') {
-      const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
-      
-      const response = await fetch(`${ollamaHost}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'llama3-tasks', // Or whatever model name is loaded in your HF space
-          messages: messages,
-          stream: false,
-          options: { temperature: 0.5 }
-        })
-      });
-
-      if (!response.ok) throw new Error(`Ollama Server Error: ${response.statusText}`);
-      
-      const data = await response.json();
-      const reply = data.message?.content || 'I could not generate a response via Ollama. Please try again.';
-      return res.json({ reply });
-    }
-
-    // Default: Groq
+    // Always use Groq for the Chatbot (24/7 availability)
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey || apiKey === 'paste_your_groq_key_here') {
       return res.status(503).json({
