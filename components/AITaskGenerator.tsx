@@ -27,6 +27,17 @@ const AITaskGenerator: React.FC<Props> = ({
   const [tasks, setTasks] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [warmingUp, setWarmingUp] = useState(true);
+
+  // Warm up the Render server the moment this modal opens.
+  // Render free tier spins down after inactivity; this ping wakes it up
+  // so it's ready by the time the user clicks "Generate".
+  React.useEffect(() => {
+    setWarmingUp(true);
+    fetch('/ping')
+      .catch(() => {}) // ignore errors — just need to wake the server
+      .finally(() => setWarmingUp(false));
+  }, []);
 
   const handleGenerate = async () => {
     setStage('generating');
@@ -125,11 +136,17 @@ const AITaskGenerator: React.FC<Props> = ({
               <p className="text-[13px] opacity-60 leading-relaxed">
                 Generate a starter task list for <strong className="opacity-90">"{projectName}"</strong> based on project scope. Tasks will be automatically assigned to your team members.
               </p>
+              {warmingUp && (
+                <p className="text-[10px] mono opacity-30 flex items-center gap-1.5">
+                  <Loader2 size={10} className="animate-spin" /> Connecting to server…
+                </p>
+              )}
               <button
                 onClick={handleGenerate}
-                className="w-full bg-[var(--accent)] text-black py-3 text-[12px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all rounded-sm"
+                disabled={warmingUp}
+                className="w-full bg-[var(--accent)] text-black py-3 text-[12px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all rounded-sm disabled:opacity-50"
               >
-                <Sparkles size={14} /> Generate with AI
+                <Sparkles size={14} /> {warmingUp ? 'Connecting…' : 'Generate with AI'}
               </button>
             </>
           )}

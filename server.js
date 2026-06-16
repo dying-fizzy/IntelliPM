@@ -72,7 +72,7 @@ app.get('/ping', (req, res) => res.send('pong'));
 
 // ── AI: Generate tasks for a project ──────────────────────────────────────
 // Provider is controlled by AI_PROVIDER in .env (stub | gemini | custom)
-const AI_TIMEOUT_MS = 300_000; // 5 minutes for very slow CPU inference
+const AI_TIMEOUT_MS = 25_000; // 25 seconds — Groq is fast; fail quickly if it hangs
 
 app.post('/api/ai/generate-tasks', async (req, res) => {
   const { projectId, description, projectType, complexity, mode } = req.body;
