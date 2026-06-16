@@ -55,16 +55,17 @@ Rules:
     // ── Groq (default) ────────────────────────────────────────────
     if (provider === 'groq') {
       const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-      console.log('>>> GROQ: Generating tasks via llama-3.3-70b-versatile...');
+      // llama-3.1-8b-instant is Groq's fastest model — purpose-built for low latency
+      console.log('>>> GROQ: Generating tasks via llama-3.1-8b-instant...');
 
       const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.1-8b-instant',
         messages: [
           { role: 'system', content: 'You are a project management AI. You always respond with valid JSON only, no markdown, no explanation.' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.6,
-        max_tokens: 2048,
+        temperature: 0.4,
+        max_tokens: 1400,
       });
 
       const text = completion.choices[0]?.message?.content || '';

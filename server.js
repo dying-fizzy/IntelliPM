@@ -105,40 +105,14 @@ app.post('/api/ai/generate-tasks', async (req, res) => {
         .eq('project_id', projectId);
 
       if (!memberErr && members) {
-        teamMembers = members.map(m => ({
-          id: m.profiles.id,
-          name: m.profiles.display_name,
-          role: m.profiles.role,
-          skills: []
-        }));
-
-        // Fetch skills for these members
-        const displayNames = teamMembers.map(m => m.name);
-        if (displayNames.length > 0) {
-          const { data: employees } = await supabaseAdmin
-            .from('employees')
-            .select('employee_id, full_name')
-            .in('full_name', displayNames);
-
-          if (employees && employees.length > 0) {
-            const empIds = employees.map(e => e.employee_id);
-            const { data: skillsData } = await supabaseAdmin
-              .from('employee_skills')
-              .select('employee_id, skill_name, skill_level')
-              .in('employee_id', empIds);
-
-            if (skillsData) {
-              for (const member of teamMembers) {
-                 const empMatch = employees.find(e => e.full_name === member.name);
-                 if (empMatch) {
-                   member.skills = skillsData
-                      .filter(s => s.employee_id === empMatch.employee_id)
-                      .map(s => `${s.skill_name}[${s.skill_level}/10]`);
-                 }
-              }
-            }
-          }
-        }
+        teamMembers = members
+          .filter(m => m.profiles)
+          .map(m => ({
+            id: m.profiles.id,
+            name: m.profiles.display_name,
+            role: m.profiles.role,
+            skills: []
+          }));
       }
     }
 
