@@ -90,9 +90,9 @@ Rules:
       }));
     }
 
-    // ── Ollama (Hugging Face Space) ────────────────────────────────
+    // ── Ollama (Hugging Face Space or Local) ────────────────────────────────
     if (provider === 'ollama') {
-      console.log('>>> OLLAMA: Generating tasks via multi-phase prompting to bypass 3B token limits...');
+      console.log('>>> OLLAMA: Generating tasks sequentially via multi-phase prompting...');
       const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
       
       const phases = [
@@ -103,7 +103,9 @@ Rules:
       
       let allTasks = [];
       
-      const phasePromises = phases.map(async (phase) => {
+      // Process sequentially to prevent queueing/timeouts on local Ollama
+      for (const phase of phases) {
+        console.log(`>>> OLLAMA: Starting ${phase}...`);
         const phasePrompt = `You are a senior project manager. Generate EXACTLY 5 to 7 unique, realistic tasks specifically for ${phase} of this project.
 
 Project Description: ${description}
@@ -118,8 +120,8 @@ Return this exact structure:
 
 Rules:
 1. Generate EXACTLY 5 to 7 tasks for ${phase}.
-2. priority must be exactly: High, Medium, or Low.
-3. assignee must be a real team member name exactly as spelled in the list above, or "Unassigned".
+2. priority must be exactly one of: High, Medium, or Low.
+3. assignee MUST be one of these exact names: ${memberNames || 'Unassigned'}. Do NOT invent names.
 4. estimated_days must be an integer between 1 and 14.`;
 
         try {
@@ -130,7 +132,7 @@ Rules:
               'ngrok-skip-browser-warning': 'true'
             },
             body: JSON.stringify({
-              model: 'llama3-tasks',
+              model: process.env.OLLAMA_MODEL || 'llama3-tasks:latest',
               messages: [{ role: 'system', content: 'Return ONLY valid JSON.' }, { role: 'user', content: phasePrompt }],
               format: 'json',
               stream: false,
@@ -148,17 +150,15 @@ Rules:
               const parsed  = JSON.parse(jsonStr);
               let tasks = parsed.tasks || parsed;
               if (!Array.isArray(tasks)) tasks = [tasks];
-              return tasks;
+              allTasks.push(...tasks);
             }
+          } else {
+             console.error('Ollama response not OK:', response.statusText);
           }
         } catch (e) {
-          console.error(`Ollama Phase error:`, e);
+          console.error(`Ollama Phase error for ${phase}:`, e.message);
         }
-        return [];
-      });
-
-      const results = await Promise.all(phasePromises);
-      allTasks = results.flat();
+      }
 
       if (allTasks.length === 0) throw new Error('No JSON found in Ollama response');
 
