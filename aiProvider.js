@@ -106,7 +106,7 @@ Rules:
       // Process sequentially to prevent queueing/timeouts on local Ollama
       for (const phase of phases) {
         console.log(`>>> OLLAMA: Starting ${phase}...`);
-        const phasePrompt = `You are a senior project manager. Generate EXACTLY 5 to 7 unique, realistic tasks specifically for ${phase} of this project.
+        const phasePrompt = `You are a senior project manager. Generate EXACTLY 7 unique, realistic tasks specifically for ${phase} of this project.
 
 Project Description: ${description}
 Project Type: ${projectType || 'Software Development'}
@@ -119,7 +119,7 @@ Return this exact structure:
 {"tasks": [{"title": "Task name here", "priority": "High", "assignee": "Team member name", "estimated_days": 3}]}
 
 Rules:
-1. Generate EXACTLY 5 to 7 tasks for ${phase}.
+1. You MUST generate EXACTLY 7 tasks for ${phase}. Do not stop early. Do not generate less than 7.
 2. priority must be exactly one of: High, Medium, or Low.
 3. assignee MUST be one of these exact names: ${memberNames || 'Unassigned'}. Do NOT invent names.
 4. estimated_days must be an integer between 1 and 14.`;
