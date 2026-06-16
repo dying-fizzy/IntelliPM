@@ -157,16 +157,44 @@ app.post('/api/ai/generate-tasks', async (req, res) => {
     }
 
     // 3. Map assignee names back to UUIDs
-    const tasks = rawTasks.map(task => {
+    // Strategy: try fuzzy name match first; if no match but team exists, round-robin assign
+    const tasks = rawTasks.map((task, idx) => {
       const aiName = (task.assignee || '').toLowerCase().trim();
+
+      // Tier 1: try exact / fuzzy name match
       const matchedMember = teamMembers.find(m => {
         const memberName = m.name.toLowerCase().trim();
-        return memberName === aiName || memberName.includes(aiName) || aiName.includes(memberName);
+        return memberName === aiName ||
+               memberName.includes(aiName) ||
+               aiName.includes(memberName) ||
+               // also match first name only (e.g. AI says "John", member is "John Smith")
+               memberName.split(' ')[0] === aiName.split(' ')[0];
       });
+
+      if (matchedMember) {
+        return {
+          ...task,
+          assigned_to: matchedMember.id,
+          assignee_name: matchedMember.name
+        };
+      }
+
+      // Tier 2: if we have team members but the AI hallucinated a wrong name,
+      // round-robin assign so no task is ever left unassigned
+      if (teamMembers.length > 0) {
+        const fallback = teamMembers[idx % teamMembers.length];
+        return {
+          ...task,
+          assigned_to: fallback.id,
+          assignee_name: fallback.name
+        };
+      }
+
+      // Tier 3: genuinely no team members on this project
       return {
         ...task,
-        assigned_to: matchedMember ? matchedMember.id : null,
-        assignee_name: matchedMember ? matchedMember.name : 'Unassigned'
+        assigned_to: null,
+        assignee_name: 'Unassigned'
       };
     });
 

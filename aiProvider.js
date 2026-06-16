@@ -22,9 +22,13 @@ export async function generateTasks({ description, projectType, complexity, mode
   }
 
   else if (provider === 'groq' || provider === 'gemini' || provider === 'ollama') {
+    const memberNames = teamMembers.length > 0
+      ? teamMembers.map(m => m.name).join(', ')
+      : null;
+
     const memberContext = teamMembers.length > 0
-      ? `Available Team Members and their roles:\n${teamMembers.map(m => `- ${m.name} (${m.role}) ${m.skills && m.skills.length > 0 ? `— Skills: ${m.skills.join(', ')}` : ''}`).join('\n')}`
-      : "No specific team members provided. Use generic role names like 'Developer', 'Designer', etc.";
+      ? `TEAM MEMBERS (you MUST assign every task to one of these exact names):\n${teamMembers.map((m, i) => `${i + 1}. ${m.name} — ${m.role}${m.skills && m.skills.length > 0 ? ` (${m.skills.join(', ')})` : ''}`).join('\n')}`
+      : "No team members provided. Use 'Unassigned' for all tasks.";
 
     const prompt = `You are a senior project manager. You MUST generate EXACTLY 15 to 20 unique, realistic tasks for this project, ordered chronologically.
 
@@ -39,13 +43,14 @@ Return this exact structure:
 {"tasks": [{"title": "Task name here", "priority": "High", "assignee": "Team member name", "estimated_days": 3}]}
 
 Rules:
-1. Generate EXACTLY 15 to 20 tasks. If you only have a few main tasks, you MUST break them down into smaller micro-tasks (e.g. Planning, Setup, Implementation, Testing, Review for EACH feature) to reach at least 15 tasks.
-2. Order the tasks chronologically (Phase 1 first, deployment last).
-3. priority must be exactly: High, Medium, or Low.
-4. assignee must be a real team member name exactly as spelled in the list above, or "Unassigned". Do not invent names.
-5. estimated_days must be an integer between 1 and 14.
-6. No duplicate tasks.
-7. Tasks should be specific and actionable.`;
+1. Generate EXACTLY 15 to 20 tasks. If you only have a few main tasks, break them into smaller micro-tasks to reach at least 15.
+2. Order tasks chronologically (planning first, deployment last).
+3. priority must be exactly one of: High, Medium, or Low.
+4. assignee MUST be one of these exact names: ${memberNames || 'Unassigned'}. Do NOT invent names. Do NOT use generic names like "Developer" or "Designer".
+5. Distribute tasks evenly across all team members. Every member should get at least one task.
+6. estimated_days must be an integer between 1 and 14.
+7. No duplicate tasks.
+8. Tasks must be specific and actionable.`;
 
     // ── Groq (default) ────────────────────────────────────────────
     if (provider === 'groq') {
