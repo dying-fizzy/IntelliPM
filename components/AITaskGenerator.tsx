@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, CheckCircle2, Trash2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
@@ -16,6 +16,38 @@ const PRIORITY_STYLES: Record<string, string> = {
   Low: 'bg-green-500/20 text-green-400 border border-green-500/30',
 };
 
+// ── Call Groq REST API directly from the browser ──────────────────────────
+// This bypasses the backend entirely, so Render cold-starts are irrelevant.
+async function callGroqDirect(prompt: string): Promise<string> {
+  const apiKey = process.env.VITE_GROQ_API_KEY;
+  if (!apiKey) throw new Error('Groq API key not configured.');
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-8b-instant',
+      messages: [
+        { role: 'system', content: 'You are a project management AI. Respond with valid JSON only. No markdown, no explanation.' },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.4,
+      max_tokens: 1400,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `Groq error ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
 const AITaskGenerator: React.FC<Props> = ({
   projectId,
   projectName,
@@ -27,17 +59,31 @@ const AITaskGenerator: React.FC<Props> = ({
   const [tasks, setTasks] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [warmingUp, setWarmingUp] = useState(true);
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
 
-  // Warm up the Render server the moment this modal opens.
-  // Render free tier spins down after inactivity; this ping wakes it up
-  // so it's ready by the time the user clicks "Generate".
-  React.useEffect(() => {
-    setWarmingUp(true);
-    fetch('/ping')
-      .catch(() => {}) // ignore errors — just need to wake the server
-      .finally(() => setWarmingUp(false));
-  }, []);
+  // Load team members from Supabase directly when modal opens
+  useEffect(() => {
+    const fetchMembers = async () => {
+      if (!projectId) return;
+      const { data, error } = await supabase
+        .from('project_members')
+        .select('profiles(id, display_name, role)')
+        .eq('project_id', projectId);
+
+      if (!error && data) {
+        setTeamMembers(
+          data
+            .filter((m: any) => m.profiles)
+            .map((m: any) => ({
+              id: m.profiles.id,
+              name: m.profiles.display_name,
+              role: m.profiles.role,
+            }))
+        );
+      }
+    };
+    fetchMembers();
+  }, [projectId]);
 
   const handleGenerate = async () => {
     setStage('generating');
@@ -45,32 +91,78 @@ const AITaskGenerator: React.FC<Props> = ({
     setError('');
 
     try {
-      const response = await fetch('/api/ai/generate-tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId,
-          description: projectDescription,
-          projectType: 'Software Development',
-          complexity: 5,
-        }),
-      });
+      const memberNames = teamMembers.length > 0 ? teamMembers.map(m => m.name).join(', ') : null;
+      const memberContext = teamMembers.length > 0
+        ? `TEAM MEMBERS (assign every task to one of these exact names):\n${teamMembers.map((m, i) => `${i + 1}. ${m.name} — ${m.role}`).join('\n')}`
+        : "No team members. Use 'Unassigned' for all tasks.";
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.message || 'Generation failed.');
-      }
+      const prompt = `You are a senior project manager. Generate EXACTLY 15 to 20 unique, realistic tasks for this project, ordered chronologically.
 
-      const data = await response.json();
-      const mappedTasks = data.tasks.map((t: any) => {
+Project Name: ${projectName}
+Project Description: ${projectDescription}
+Project Type: Software Development
+
+${memberContext}
+
+Return ONLY valid JSON with this exact structure:
+{"tasks": [{"title": "Task name", "priority": "High", "assignee": "Member name", "estimated_days": 3}]}
+
+Rules:
+1. Generate EXACTLY 15 to 20 tasks, ordered from planning to deployment.
+2. priority must be exactly: High, Medium, or Low.
+3. assignee MUST be one of: ${memberNames || 'Unassigned'}. Do NOT invent names.
+4. Distribute tasks evenly. Every member gets at least one task.
+5. estimated_days must be an integer between 1 and 14.
+6. No duplicate tasks. Be specific and actionable.`;
+
+      const text = await callGroqDirect(prompt);
+
+      // Robust JSON extraction
+      const firstBrace = text.indexOf('{');
+      const lastBrace  = text.lastIndexOf('}');
+      if (firstBrace === -1 || lastBrace === -1) throw new Error('Could not parse AI response. Please try again.');
+
+      const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+      let rawTasks = parsed.tasks || parsed;
+      if (!Array.isArray(rawTasks)) rawTasks = [rawTasks];
+
+      // Map assignee names → UUIDs with round-robin fallback
+      const mapped = rawTasks.map((t: any, idx: number) => {
+        const aiName = (t.assignee || '').toLowerCase().trim();
         const d = new Date();
-        d.setDate(d.getDate() + (t.estimated_days || 3));
-        return { ...t, due_date: d.toISOString().split('T')[0] };
+        d.setDate(d.getDate() + (parseInt(t.estimated_days) || 3));
+
+        // Tier 1: fuzzy match
+        const match = teamMembers.find(m => {
+          const mn = m.name.toLowerCase();
+          return mn === aiName || mn.includes(aiName) || aiName.includes(mn) ||
+                 mn.split(' ')[0] === aiName.split(' ')[0];
+        });
+
+        if (match) {
+          return { ...t, priority: t.priority || 'Medium', status: 'To Do',
+                   assigned_to: match.id, assignee_name: match.name,
+                   due_date: d.toISOString().split('T')[0] };
+        }
+
+        // Tier 2: round-robin if no match but members exist
+        if (teamMembers.length > 0) {
+          const fb = teamMembers[idx % teamMembers.length];
+          return { ...t, priority: t.priority || 'Medium', status: 'To Do',
+                   assigned_to: fb.id, assignee_name: fb.name,
+                   due_date: d.toISOString().split('T')[0] };
+        }
+
+        // Tier 3: no members at all
+        return { ...t, priority: t.priority || 'Medium', status: 'To Do',
+                 assigned_to: null, assignee_name: 'Unassigned',
+                 due_date: d.toISOString().split('T')[0] };
       });
-      setTasks(mappedTasks);
+
+      setTasks(mapped);
       setStage('done');
     } catch (err: any) {
-      setError(err.message || 'Generation failed.');
+      setError(err.message || 'Generation failed. Please try again.');
       setStage('error');
     } finally {
       setLoading(false);
@@ -134,19 +226,16 @@ const AITaskGenerator: React.FC<Props> = ({
           {stage === 'idle' && (
             <>
               <p className="text-[13px] opacity-60 leading-relaxed">
-                Generate a starter task list for <strong className="opacity-90">"{projectName}"</strong> based on project scope. Tasks will be automatically assigned to your team members.
+                Generate a starter task list for <strong className="opacity-90">"{projectName}"</strong> based on project scope.
+                {teamMembers.length > 0
+                  ? ` Tasks will be assigned across ${teamMembers.length} team member${teamMembers.length > 1 ? 's' : ''}.`
+                  : ' Add team members to get smart assignments.'}
               </p>
-              {warmingUp && (
-                <p className="text-[10px] mono opacity-30 flex items-center gap-1.5">
-                  <Loader2 size={10} className="animate-spin" /> Connecting to server…
-                </p>
-              )}
               <button
                 onClick={handleGenerate}
-                disabled={warmingUp}
-                className="w-full bg-[var(--accent)] text-black py-3 text-[12px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all rounded-sm disabled:opacity-50"
+                className="w-full bg-[var(--accent)] text-black py-3 text-[12px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all rounded-sm"
               >
-                <Sparkles size={14} /> {warmingUp ? 'Connecting…' : 'Generate with AI'}
+                <Sparkles size={14} /> Generate with AI
               </button>
             </>
           )}
@@ -180,7 +269,6 @@ const AITaskGenerator: React.FC<Props> = ({
                     className="flex items-center gap-3 px-4 py-3 rounded-sm"
                     style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-color)' }}
                   >
-                    {/* Task title + assignee — takes all remaining space */}
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-medium opacity-90 leading-snug">{t.title}</p>
                       <p className="text-[10px] opacity-40 uppercase tracking-wider mt-0.5">
@@ -188,7 +276,6 @@ const AITaskGenerator: React.FC<Props> = ({
                       </p>
                     </div>
 
-                    {/* Due date */}
                     <input
                       type="date"
                       value={t.due_date || ''}
@@ -198,19 +285,13 @@ const AITaskGenerator: React.FC<Props> = ({
                         setTasks(updated);
                       }}
                       className="shrink-0 text-[10px] px-2 py-1 rounded-sm outline-none focus:border-[var(--accent)] transition-colors"
-                      style={{
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid var(--border-color)',
-                        color: 'rgba(255,255,255,0.7)',
-                      }}
+                      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: 'rgba(255,255,255,0.7)' }}
                     />
 
-                    {/* Priority badge */}
                     <span className={`shrink-0 text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-sm ${PRIORITY_STYLES[t.priority] || PRIORITY_STYLES.Low}`}>
                       {t.priority}
                     </span>
 
-                    {/* Remove button */}
                     <button
                       onClick={() => handleRemoveTask(i)}
                       className="shrink-0 opacity-30 hover:opacity-100 hover:text-red-400 transition-all p-1 rounded"
