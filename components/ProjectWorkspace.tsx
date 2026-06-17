@@ -24,6 +24,7 @@ import TaskModal from './TaskModal';
 import RisksTab from './RisksTab';
 import InsightsPanel from './InsightsPanel';
 import AITaskGenerator from './AITaskGenerator';
+import MilestonesTab from './MilestonesTab';
 import { supabase } from '../supabaseClient';
 
 /* ─────────────────────────────────────────────────────
@@ -765,6 +766,7 @@ const ProjectWorkspace: React.FC = () => {
         <TabBtn id="list" label="List" icon={List} active={activeTab === 'list'} onClick={setActiveTab} />
         <TabBtn id="calendar" label="Calendar" icon={CalendarDays} active={activeTab === 'calendar'} onClick={setActiveTab} />
         <TabBtn id="sprints" label="Sprints" icon={Zap} active={activeTab === 'sprints'} onClick={setActiveTab} />
+        <TabBtn id="milestones" label="Milestones" icon={Check} active={activeTab === 'milestones'} onClick={setActiveTab} />
         <TabBtn id="members" label="Members" icon={Users} active={activeTab === 'members'} onClick={setActiveTab} />
         <TabBtn id="risks" label="Risks" icon={Shield} active={activeTab === 'risks'} onClick={setActiveTab} />
         <TabBtn id="activity" label="Activity" icon={Activity} active={activeTab === 'activity'} onClick={setActiveTab} />
@@ -783,6 +785,9 @@ const ProjectWorkspace: React.FC = () => {
       )}
       {activeTab === 'sprints' && projectId && (
         <SprintManager projectId={projectId} />
+      )}
+      {activeTab === 'milestones' && projectId && (
+        <MilestonesTab projectId={projectId} />
       )}
       {activeTab === 'members' && projectId && (
         <MembersTab projectId={projectId} ownerId={project?.owner_id || null} />
